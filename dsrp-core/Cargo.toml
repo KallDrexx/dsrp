@@ -1,0 +1,8 @@
+[package]
+name = "dsrp-core"
+version = "0.1.0"
+authors = ["KallDrexx <me@mshapiro.net>"]
+
+[dependencies]
+byteorder = "1.2.3"
+failure = "0.1.1"
