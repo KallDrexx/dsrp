@@ -2,9 +2,7 @@ use std::io;
 use std::fmt;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use failure::{Backtrace, Fail};
-use super::{CURRENT_PROTOCOL_VERSION, HANDSHAKE_PREFIX};
-
-const EXPECTED_REQUEST_LENGTH: usize = 8;
+use super::{CURRENT_PROTOCOL_VERSION, HANDSHAKE_REQUEST_PREFIX};
 
 pub struct HandshakeRequest {
     pub client_protocol_version: u32,
@@ -12,7 +10,6 @@ pub struct HandshakeRequest {
 
 #[derive(Debug)]
 pub struct HandshakeRequestParseError {
-    /// The type of error that was observed
     pub kind: HandshakeRequestParseErrorsKind,
 }
 
@@ -25,7 +22,7 @@ pub enum HandshakeRequestParseErrorsKind {
     InvalidPrefix,
 
     #[fail(display = "_0")]
-    Io(#[cause] io::Error)
+    Io(#[cause] io::Error),
 }
 
 impl HandshakeRequest {
@@ -36,8 +33,8 @@ impl HandshakeRequest {
     }
 
     pub fn into_bytes(self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(8);
-        for byte in HANDSHAKE_PREFIX {
+        let mut bytes = Vec::with_capacity(9);
+        for byte in HANDSHAKE_REQUEST_PREFIX {
             bytes.push(*byte);
         }
 
@@ -46,13 +43,14 @@ impl HandshakeRequest {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, HandshakeRequestParseError> {
-        let prefix_length = HANDSHAKE_PREFIX.len();
-        if bytes.len() != EXPECTED_REQUEST_LENGTH {
+        let prefix_length = HANDSHAKE_REQUEST_PREFIX.len();
+        let expected_request_length = prefix_length + 4;
+        if bytes.len() != expected_request_length {
             let kind = HandshakeRequestParseErrorsKind::InvalidNumberOfBytes;
             return Err(HandshakeRequestParseError {kind});
         }
 
-        if &bytes[..prefix_length] != HANDSHAKE_PREFIX {
+        if &bytes[..prefix_length] != HANDSHAKE_REQUEST_PREFIX {
             let kind = HandshakeRequestParseErrorsKind::InvalidPrefix;
             return Err(HandshakeRequestParseError {kind});
         }
@@ -103,10 +101,10 @@ mod tests {
         let request = HandshakeRequest { client_protocol_version: VERSION };
         let bytes = request.into_bytes();
 
-        let prefix_length = HANDSHAKE_PREFIX.len();
+        let prefix_length = HANDSHAKE_REQUEST_PREFIX.len();
 
         assert_eq!(bytes.len(), prefix_length + 4, "Unexpected byte length");
-        assert_eq!(&bytes[..prefix_length], HANDSHAKE_PREFIX, "Unexpected handshake prefix");
+        assert_eq!(&bytes[..prefix_length], HANDSHAKE_REQUEST_PREFIX, "Unexpected handshake prefix");
 
         let mut cursor = Cursor::new(&bytes[prefix_length..]);
         let actual_version = cursor.read_u32::<BigEndian>().unwrap();
@@ -133,7 +131,7 @@ mod tests {
     #[test]
     fn invalid_prefix_returns_error() {
         let mut bytes = Vec::with_capacity(8);
-        for byte in b"abcd" {
+        for byte in b"abcde" {
             bytes.push(*byte);
         }
         bytes.write_u32::<BigEndian>(15).unwrap();
