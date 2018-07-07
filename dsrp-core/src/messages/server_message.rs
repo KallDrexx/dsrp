@@ -1,5 +1,6 @@
 use super::{RequestId, ChannelId, ConnectionId};
 
+#[derive(Debug)]
 pub enum ServerMessage {
     /// Tells the client that their registration request was successful, and defines a
     /// channel id that will be used for communicating traffic information for the registered
@@ -40,6 +41,7 @@ pub enum ServerMessage {
     },
 }
 
+#[derive(Debug, PartialEq)]
 pub enum RegistrationFailureCause {
     PortAlreadyRegistered,
 }

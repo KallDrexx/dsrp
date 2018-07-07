@@ -1,10 +1,11 @@
 use super::{ConnectionType, RequestId, ChannelId, ConnectionId};
 
+#[derive(Debug)]
 pub enum ClientMessage {
     /// A Request to have the DSRP server relay all tcp or udp traffic from the specified port
     /// to the client sending the request.
     Register {
-        request_id: RequestId,
+        request: RequestId,
         connection_type: ConnectionType,
         port: u16,
     },

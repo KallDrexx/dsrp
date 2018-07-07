@@ -21,7 +21,7 @@ pub enum HandshakeRequestParseErrorsKind {
     #[fail(display = "Invalid prefix")]
     InvalidPrefix,
 
-    #[fail(display = "_0")]
+    #[fail(display = "{}", _0)]
     Io(#[cause] io::Error),
 }
 
