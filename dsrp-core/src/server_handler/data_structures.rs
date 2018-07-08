@@ -1,8 +1,7 @@
-use handshake::HandshakeResponse;
 use std::fmt;
-use messages::ChannelId;
-use messages::ConnectionId;
-use messages::ServerMessage;
+use std::collections::HashSet;
+use handshake::HandshakeResponse;
+use messages::{ChannelId, ConnectionId, ServerMessage, ConnectionType};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub struct ClientId(pub(crate) u32);
@@ -11,6 +10,15 @@ pub struct ClientId(pub(crate) u32);
 pub struct NewClient {
     pub id: ClientId,
     pub response: HandshakeResponse,
+}
+
+pub struct ActiveClient {
+    pub channels: HashSet<ChannelId>,
+}
+
+pub struct ActiveChannel {
+    pub port: u16,
+    pub connection_type: ConnectionType,
 }
 
 /// Represents the different type of operations that the server handler instructs the

@@ -1,6 +1,10 @@
 macro_rules! assert_vec_contains{
     (@match $vector:expr, $pattern:pat if $cond:expr => $success:expr) => {
         let mut has_value = false;
+        if $vector.len() == 0 {
+            panic!("Empty vector provided, so it did not match '{} if {}'", stringify!($pattern), stringify!($cond))
+        }
+
         for x in $vector.iter() {
             match x {
                 $pattern if $cond => {has_value = true; $success},
