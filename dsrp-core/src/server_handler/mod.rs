@@ -1,18 +1,13 @@
+mod errors;
+mod data_structures;
+
 use std::collections::{HashSet, HashMap};
-use std::fmt;
 use std::num::Wrapping;
-use failure::{Backtrace, Fail};
 use ::handshake::{HandshakeRequest, HandshakeResponse, CURRENT_PROTOCOL_VERSION};
 use ::messages::{ClientMessage, ServerMessage, ChannelId, RegistrationFailureCause};
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
-pub struct ClientId(pub(crate) u32);
-
-#[derive(Debug)]
-pub struct NewClient {
-    id: ClientId,
-    response: HandshakeResponse,
-}
+pub use self::errors::{ClientMessageHandlingError, ClientMessageHandlingErrorKind};
+pub use self::data_structures::{NewClient, ClientId, ServerOperation};
 
 /// Contains the logic for handling the logic of a DSRP server
 pub struct ServerHandler {
@@ -21,17 +16,6 @@ pub struct ServerHandler {
     active_channels: HashSet<ChannelId>,
     next_client_id: Wrapping<u32>,
     next_channel_id: Wrapping<u32>,
-}
-
-#[derive(Debug)]
-pub struct ClientMessageHandlingError {
-    pub kind: ClientMessageHandlingErrorKind,
-}
-
-#[derive(Debug, Fail)]
-pub enum ClientMessageHandlingErrorKind {
-    #[fail(display = "Unknown client id: {}", _0)]
-    UnknownClientId(ClientId),
 }
 
 impl ServerHandler {
@@ -79,7 +63,7 @@ impl ServerHandler {
     }
 
     pub fn handle_client_message(&mut self, client_id: ClientId, message: ClientMessage)
-        -> Result<ServerMessage, ClientMessageHandlingError> {
+        -> Result<Vec<ServerOperation>, ClientMessageHandlingError> {
 
         if !self.active_clients.contains(&client_id) {
             let kind = ClientMessageHandlingErrorKind::UnknownClientId(client_id);
@@ -89,10 +73,12 @@ impl ServerHandler {
         let response = match message {
             ClientMessage::Register {request, connection_type: _, port} => {
                 if self.active_ports.contains_key(&port) {
-                    ServerMessage::RegistrationFailed {
-                        request,
-                        cause: RegistrationFailureCause::PortAlreadyRegistered,
-                    }
+                    vec![ServerOperation::SendMessageToDsrpClient {
+                        message: ServerMessage::RegistrationFailed {
+                            request,
+                            cause: RegistrationFailureCause::PortAlreadyRegistered,
+                        }
+                    }]
                 }
                 else {
                     let mut channel_id;
@@ -108,10 +94,12 @@ impl ServerHandler {
 
                     self.active_ports.insert(port, channel_id);
                     self.active_channels.insert(channel_id);
-                    ServerMessage::RegistrationSuccessful {
-                        request,
-                        created_channel: channel_id,
-                    }
+                    vec![ServerOperation::SendMessageToDsrpClient {
+                        message: ServerMessage::RegistrationSuccessful {
+                            request,
+                            created_channel: channel_id,
+                        }
+                    }]
                 }
             },
 
@@ -122,31 +110,10 @@ impl ServerHandler {
     }
 }
 
-impl fmt::Display for ClientMessageHandlingError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.kind, f)
-    }
-}
-
-impl Fail for ClientMessageHandlingError {
-    fn cause(&self) -> Option<&Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
-    }
-}
-
-impl fmt::Display for ClientId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::u32;
     use ::messages::{ConnectionType, RequestId};
 
     #[test]
@@ -218,13 +185,12 @@ mod tests {
         };
 
         let response = handler.handle_client_message(client_id, message).unwrap();
-        match response {
-            ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _} => {
-                assert_eq!(response_request_id, request_id, "Unexpected request id in response");
-            },
 
-            x => panic!("Expected registration successful message, instead got: {:?}", x),
-        }
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
+        } => {
+                    assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        });
     }
 
     #[test]
@@ -242,13 +208,11 @@ mod tests {
         };
 
         let response = handler.handle_client_message(client_id, message).unwrap();
-        match response {
-            ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _} => {
-                assert_eq!(response_request_id, request_id, "Unexpected request id in response");
-            },
-
-            x => panic!("Expected registration successful message, instead got: {:?}", x),
-        }
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
+        } => {
+                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        });
 
         let request_id = RequestId(26);
         let message = ClientMessage::Register {
@@ -258,14 +222,12 @@ mod tests {
         };
 
         let response = handler.handle_client_message(client_id, message).unwrap();
-        match response {
-            ServerMessage::RegistrationFailed {request: response_request_id, cause} => {
-                assert_eq!(response_request_id, request_id, "Unexpected request id in response");
-                assert_eq!(cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
-            },
-
-            x => panic!("Expected registration failure message, instead got: {:?}", x),
-        }
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+            message: ServerMessage::RegistrationFailed {request: response_request_id, cause}
+        } => {
+                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+                assert_eq!(*cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
+        });
     }
 
     #[test]
@@ -283,13 +245,11 @@ mod tests {
         };
 
         let response = handler.handle_client_message(client_id, message).unwrap();
-        match response {
-            ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _} => {
-                assert_eq!(response_request_id, request_id, "Unexpected request id in response");
-            },
-
-            x => panic!("Expected registration successful message, instead got: {:?}", x),
-        }
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
+        } => {
+                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        });
 
         let request_id = RequestId(26);
         let message = ClientMessage::Register {
@@ -299,14 +259,12 @@ mod tests {
         };
 
         let response = handler.handle_client_message(client_id, message).unwrap();
-        match response {
-            ServerMessage::RegistrationFailed {request: response_request_id, cause} => {
-                assert_eq!(response_request_id, request_id, "Unexpected request id in response");
-                assert_eq!(cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
-            },
-
-            x => panic!("Expected registration failure message, instead got: {:?}", x),
-        }
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+            message: ServerMessage::RegistrationFailed {request: response_request_id, cause}
+        } => {
+                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+                assert_eq!(*cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
+        });
     }
 
     #[test]
@@ -324,13 +282,11 @@ mod tests {
         };
 
         let response = handler.handle_client_message(client_id1, message).unwrap();
-        match response {
-            ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _} => {
-                assert_eq!(response_request_id, request_id, "Unexpected request id in response");
-            },
-
-            x => panic!("Expected registration successful message, instead got: {:?}", x),
-        }
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
+        } => {
+                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        });
 
         let client_id2 = new_client2.id;
         let request_id = RequestId(26);
@@ -341,14 +297,12 @@ mod tests {
         };
 
         let response = handler.handle_client_message(client_id2, message).unwrap();
-        match response {
-            ServerMessage::RegistrationFailed {request: response_request_id, cause} => {
-                assert_eq!(response_request_id, request_id, "Unexpected request id in response");
-                assert_eq!(cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
-            },
-
-            x => panic!("Expected registration failure message, instead got: {:?}", x),
-        }
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+            message: ServerMessage::RegistrationFailed {request: response_request_id, cause}
+        } => {
+                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+                assert_eq!(*cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
+        });
     }
 
     #[test]
@@ -365,16 +319,14 @@ mod tests {
             request: request_id,
         };
 
-        let channel1;
+        let mut channel1 = ChannelId(u32::MAX);
         let response = handler.handle_client_message(client_id, message).unwrap();
-        match response {
-            ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel} => {
-                assert_eq!(response_request_id, request_id, "Unexpected request id in response");
-                channel1 = created_channel;
-            },
-
-            x => panic!("Expected registration successful message, instead got: {:?}", x),
-        }
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel}
+        } => {
+                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+                channel1 = *created_channel;
+        });
 
         let request_id = RequestId(26);
         let message = ClientMessage::Register {
@@ -383,16 +335,14 @@ mod tests {
             request: request_id,
         };
 
-        let channel2;
-        let response = handler.handle_client_message(client_id, message).unwrap();
-        match response {
-            ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel} => {
-                assert_eq!(response_request_id, request_id, "Unexpected request id in response");
-                channel2 = created_channel;
-            },
-
-            x => panic!("Expected registration successful message, instead got: {:?}", x),
-        }
+        let mut channel2 = ChannelId(u32::MAX);
+        let response2 = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response2, ServerOperation::SendMessageToDsrpClient {
+            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel}
+        } => {
+                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+                channel2 = *created_channel;
+        });
 
         assert_ne!(channel1, channel2, "Both channels were not supposed to be the same ids");
     }
