@@ -19,6 +19,7 @@ pub struct ActiveClient {
 pub struct ActiveChannel {
     pub port: u16,
     pub connection_type: ConnectionType,
+    pub owner: ClientId,
 }
 
 /// Represents the different type of operations that the server handler instructs the
