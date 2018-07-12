@@ -20,6 +20,7 @@ pub struct ActiveChannel {
     pub port: u16,
     pub connection_type: ConnectionType,
     pub owner: ClientId,
+    pub tcp_connections: HashSet<ConnectionId>,
 }
 
 /// Represents the different type of operations that the server handler instructs the
@@ -49,13 +50,6 @@ pub enum ServerOperation {
     /// Instructs the server to stop listening for UDP packets on the specified port
     StopUdpOperations {
         port: u16,
-    },
-
-    /// When the server tells the server handler that a new tcp connection has been accepted
-    /// for a registered channel, this provides the server with a connection identifier that
-    /// can be used to identify traffic and events by and for that connection.
-    TcpConnectionIdentified {
-        connection: ConnectionId,
     },
 
     /// Instructs the server to disconnect the specified TCP connection.  This is usually caused

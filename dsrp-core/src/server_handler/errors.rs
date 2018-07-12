@@ -24,6 +24,20 @@ pub enum ClientMessageHandlingErrorKind {
     }
 }
 
+#[derive(Debug)]
+pub struct NewConnectionError {
+    pub kind: NewConnectionErrorKind,
+}
+
+#[derive(Debug, Fail)]
+pub enum NewConnectionErrorKind {
+    #[fail(display = "Unknown channel: {:?}", _0)]
+    UnknownChannelId(ChannelId),
+
+    #[fail(display = "Channel {:?} is not a TCP channel", _0)]
+    ConnectionAddedToNonTcpChannel(ChannelId),
+}
+
 impl fmt::Display for ClientMessageHandlingError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.kind, f)
@@ -31,6 +45,22 @@ impl fmt::Display for ClientMessageHandlingError {
 }
 
 impl Fail for ClientMessageHandlingError {
+    fn cause(&self) -> Option<&Fail> {
+        self.kind.cause()
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.kind.backtrace()
+    }
+}
+
+impl fmt::Display for NewConnectionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.kind, f)
+    }
+}
+
+impl Fail for NewConnectionError {
     fn cause(&self) -> Option<&Fail> {
         self.kind.cause()
     }
