@@ -23,6 +23,10 @@ pub struct ActiveChannel {
     pub tcp_connections: HashSet<ConnectionId>,
 }
 
+pub struct ActiveTcpConnection {
+    pub owning_channel: ChannelId,
+}
+
 /// Represents the different type of operations that the server handler instructs the
 /// server to perform
 #[derive(Debug)]
