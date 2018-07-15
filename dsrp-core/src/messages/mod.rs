@@ -13,7 +13,7 @@ pub struct ChannelId(pub(crate) u32);
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub struct ConnectionId(pub(crate) u32);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ConnectionType {
     Tcp,
     Udp,

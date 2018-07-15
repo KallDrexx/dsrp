@@ -10,3 +10,4 @@ mod test_utils {
 pub mod handshake;
 pub mod messages;
 pub mod server_handler;
+pub mod client_handler;
