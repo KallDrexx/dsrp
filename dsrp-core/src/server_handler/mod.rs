@@ -275,6 +275,43 @@ impl ServerHandler {
 
         Some(operation)
     }
+
+    pub fn tcp_data_received(&self, connection_id: ConnectionId, data: &[u8]) -> Option<ServerOperation> {
+        let connection = match self.active_tcp_connections.get(&connection_id) {
+            Some(x) => x,
+            None => return None,
+        };
+
+        let mut data_copy = Vec::new();
+        data_copy.extend_from_slice(data);
+
+        let message = ServerMessage::DataReceived {
+            channel: connection.owning_channel,
+            connection: Some(connection_id),
+            data: data_copy,
+        };
+
+        let operation = ServerOperation::SendMessageToDsrpClient {message};
+        Some(operation)
+    }
+
+    pub fn udp_data_received(&self, channel_id: ChannelId, data: &[u8]) -> Option<ServerOperation> {
+        if !self.active_channels.contains_key(&channel_id) {
+            return None;
+        }
+
+        let mut data_copy = Vec::new();
+        data_copy.extend_from_slice(data);
+
+        let message = ServerMessage::DataReceived {
+            channel: channel_id,
+            connection: None,
+            data: data_copy,
+        };
+
+        let operation = ServerOperation::SendMessageToDsrpClient {message};
+        Some(operation)
+    }
 }
 
 #[cfg(test)]
@@ -1042,7 +1079,7 @@ mod tests {
     }
 
     #[test]
-    fn no_operation_returned_if_disconnected_connection_marked_again_as_disconeccted() {
+    fn no_operation_returned_if_disconnected_connection_marked_again_as_disconnected() {
         let mut handler = ServerHandler::new();
         let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
 
@@ -1069,6 +1106,146 @@ mod tests {
         match result {
             None => (),
             Some(x) => panic!("Expected no operation, instead got {:?}", x),
+        }
+    }
+
+    #[test]
+    fn data_relayed_to_client_when_tcp_data_is_received() {
+        let mut handler = ServerHandler::new();
+        let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+
+        let client_id = new_client.id;
+        let request_id = RequestId(25);
+        let mut opened_channel = ChannelId(u32::MAX);
+        let message = ClientMessage::Register {
+            connection_type: ConnectionType::Tcp,
+            port: 23,
+            request: request_id,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+        } => {
+            opened_channel = *created_channel;
+        });
+
+        let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
+
+        let received_data = [1, 2, 3, 4, 5, 6];
+        match handler.tcp_data_received(connection1, &received_data).unwrap() {
+            ServerOperation::SendMessageToDsrpClient {message} => {
+                match message {
+                    ServerMessage::DataReceived {channel, connection, data} => {
+                        assert_eq!(channel, opened_channel, "Unexpected channel in message");
+                        assert_eq!(connection, Some(connection1), "Unexpected connection in message");
+                        assert_eq!(&data[..], &received_data[..], "Unexpected data in message");
+                    },
+
+                    x => panic!("Expected DataReceived message, instead received {:?}", x),
+                }
+            },
+
+            x => panic!("Expected SendMessageToDsrpClient operation, received {:?}", x),
+        }
+    }
+
+    #[test]
+    fn data_relayed_to_client_when_udp_data_is_received() {
+        let mut handler = ServerHandler::new();
+        let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+
+        let client_id = new_client.id;
+        let request_id = RequestId(25);
+        let mut opened_channel = ChannelId(u32::MAX);
+        let message = ClientMessage::Register {
+            connection_type: ConnectionType::Tcp,
+            port: 23,
+            request: request_id,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+        } => {
+            opened_channel = *created_channel;
+        });
+
+        let received_data = [1, 2, 3, 4, 5, 6];
+        match handler.udp_data_received(opened_channel, &received_data).unwrap() {
+            ServerOperation::SendMessageToDsrpClient {message} => {
+                match message {
+                    ServerMessage::DataReceived {channel, connection, data} => {
+                        assert_eq!(channel, opened_channel, "Unexpected channel in message");
+                        assert_eq!(connection, None, "Unexpected connection in message");
+                        assert_eq!(&data[..], &received_data[..], "Unexpected data in message");
+                    },
+
+                    x => panic!("Expected DataReceived message, instead received {:?}", x),
+                }
+            },
+
+            x => panic!("Expected SendMessageToDsrpClient operation, received {:?}", x),
+        }
+    }
+
+    #[test]
+    fn no_operation_returned_if_udp_data_received_on_unknown_channel() {
+        let mut handler = ServerHandler::new();
+        let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+
+        let client_id = new_client.id;
+        let request_id = RequestId(25);
+        let mut opened_channel = ChannelId(u32::MAX);
+        let message = ClientMessage::Register {
+            connection_type: ConnectionType::Tcp,
+            port: 23,
+            request: request_id,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+        } => {
+            opened_channel = *created_channel;
+        });
+
+        let bad_channel = ChannelId(opened_channel.0 + 1);
+        let received_data = [1, 2, 3, 4, 5, 6];
+        match handler.udp_data_received(bad_channel, &received_data) {
+            None => (),
+            Some(_) => panic!("Expected no operation but got one"),
+        }
+    }
+
+    #[test]
+    fn no_operation_returned_if_tcp_data_received_on_unknown_connection() {
+        let mut handler = ServerHandler::new();
+        let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+
+        let client_id = new_client.id;
+        let request_id = RequestId(25);
+        let mut opened_channel = ChannelId(u32::MAX);
+        let message = ClientMessage::Register {
+            connection_type: ConnectionType::Tcp,
+            port: 23,
+            request: request_id,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+        } => {
+            opened_channel = *created_channel;
+        });
+
+        let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
+
+        let bad_connection = ConnectionId(connection1.0 + 1);
+        let received_data = [1, 2, 3, 4, 5, 6];
+        match handler.tcp_data_received(bad_connection, &received_data) {
+            None => (),
+            Some(_) => panic!("Expected no operation returned but one came back"),
         }
     }
 }
