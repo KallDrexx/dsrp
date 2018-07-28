@@ -99,13 +99,10 @@ impl ServerHandler {
     pub fn handle_client_message(&mut self, client_id: ClientId, message: ClientMessage)
         -> Result<Vec<ServerOperation>, ClientMessageHandlingError> {
 
-        let client = match self.active_clients.get_mut(&client_id) {
-            Some(x) => x,
-            None => {
-                let kind = ClientMessageHandlingErrorKind::UnknownClientId(client_id);
-                return Err(ClientMessageHandlingError {kind});
-            }
-        };
+        if !self.active_clients.contains_key(&client_id) {
+            let kind = ClientMessageHandlingErrorKind::UnknownClientId(client_id);
+            return Err(ClientMessageHandlingError {kind});
+        }
 
         let response = match message {
             ClientMessage::Register {request, connection_type, port} => {
@@ -138,6 +135,9 @@ impl ServerHandler {
 
                     self.active_ports.insert(port, channel_id);
                     self.active_channels.insert(channel_id, channel);
+
+                    // Unwrap should be safe here due to if statement above verifying the client exists
+                    let client = self.active_clients.get_mut(&client_id).unwrap();
                     client.channels.insert(channel_id);
 
                     let message_to_client = ServerOperation::SendMessageToDsrpClient {
@@ -201,8 +201,8 @@ impl ServerHandler {
                 operations
             },
 
-            ClientMessage::TcpConnectionDisconnected {channel: _, connection: _} => {
-                unimplemented!()
+            ClientMessage::TcpConnectionDisconnected {channel: channel_id, connection: connection_id} => {
+                self.handle_dsrp_client_disconnection_notification(client_id, channel_id, connection_id)
             }
 
             ClientMessage::DataBeingSent {channel: _, connection: _, data: _} => {
@@ -311,6 +311,37 @@ impl ServerHandler {
 
         let operation = ServerOperation::SendMessageToDsrpClient {message};
         Some(operation)
+    }
+
+    fn handle_dsrp_client_disconnection_notification(&mut self,
+                                                     client_id: ClientId,
+                                                     channel_id: ChannelId,
+                                                     connection_id: ConnectionId)
+        -> Vec<ServerOperation> {
+
+        // Validations
+        let channel;
+        {
+            let connection = match self.active_tcp_connections.get(&connection_id) {
+                Some(x) => x,
+                None => return Vec::new(),
+            };
+
+            channel = match self.active_channels.get_mut(&channel_id) {
+                Some(x) => x,
+                None => return Vec::new(),
+            };
+
+            if connection.owning_channel != channel_id || channel.owner != client_id {
+                return Vec::new()
+            }
+        }
+
+        // If we got here without an early return then all validations check out
+        self.active_tcp_connections.remove(&connection_id);
+        channel.tcp_connections.remove(&connection_id);
+
+        vec![ServerOperation::DisconnectConnection {connection: connection_id}]
     }
 }
 
@@ -694,7 +725,7 @@ mod tests {
 
         let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
         let client_id = new_client.id;
-        
+
         let response = handler.handle_client_message(client_id, message1).unwrap();
 
         assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
@@ -1244,6 +1275,189 @@ mod tests {
         let bad_connection = ConnectionId(connection1.0 + 1);
         let received_data = [1, 2, 3, 4, 5, 6];
         match handler.tcp_data_received(bad_connection, &received_data) {
+            None => (),
+            Some(_) => panic!("Expected no operation returned but one came back"),
+        }
+    }
+
+    #[test]
+    fn client_message_of_tcp_connection_closed_returns_disconnect_operation() {
+        let mut handler = ServerHandler::new();
+        let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+
+        let client_id = new_client.id;
+        let request_id = RequestId(25);
+        let mut opened_channel = ChannelId(u32::MAX);
+        let message = ClientMessage::Register {
+            connection_type: ConnectionType::Tcp,
+            port: 23,
+            request: request_id,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+        } => {
+            opened_channel = *created_channel;
+        });
+
+        let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
+
+        let message = ClientMessage::TcpConnectionDisconnected {
+            channel: opened_channel,
+            connection: connection1,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::DisconnectConnection {
+            connection: closed_connection
+        } => {
+            assert_eq!(*closed_connection, connection1, "Unexpected connection returned in operation");
+        });
+    }
+
+    #[test]
+    fn no_operation_when_client_reports_disconnection_of_unknown_connection_id() {
+        let mut handler = ServerHandler::new();
+        let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+
+        let client_id = new_client.id;
+        let request_id = RequestId(25);
+        let mut opened_channel = ChannelId(u32::MAX);
+        let message = ClientMessage::Register {
+            connection_type: ConnectionType::Tcp,
+            port: 23,
+            request: request_id,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+        } => {
+            opened_channel = *created_channel;
+        });
+
+        let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
+
+        let message = ClientMessage::TcpConnectionDisconnected {
+            channel: opened_channel,
+            connection: ConnectionId(connection1.0 + 1),
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_eq!(response.len(), 0, "Unexpected number of operations returned");
+    }
+
+    #[test]
+    fn no_operation_when_client_reports_disconnection_of_connection_id_belonging_to_another_client() {
+        let mut handler = ServerHandler::new();
+        let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+        let new_client2 = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+
+        let client_id = new_client.id;
+        let request_id = RequestId(25);
+        let mut opened_channel = ChannelId(u32::MAX);
+        let message = ClientMessage::Register {
+            connection_type: ConnectionType::Tcp,
+            port: 23,
+            request: request_id,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+        } => {
+            opened_channel = *created_channel;
+        });
+
+        let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
+
+        let message = ClientMessage::TcpConnectionDisconnected {
+            channel: opened_channel,
+            connection: connection1,
+        };
+
+        let response = handler.handle_client_message(new_client2.id, message).unwrap();
+        assert_eq!(response.len(), 0, "Unexpected number of operations returned");
+    }
+
+    #[test]
+    fn no_operation_when_client_reports_disconnection_of_connection_id_belonging_to_another_channel() {
+        let mut handler = ServerHandler::new();
+        let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+
+        let client_id = new_client.id;
+        let request_id = RequestId(25);
+        let mut opened_channel1 = ChannelId(u32::MAX);
+        let mut opened_channel2 = ChannelId(u32::MAX);
+        let message = ClientMessage::Register {
+            connection_type: ConnectionType::Tcp,
+            port: 23,
+            request: request_id,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+        } => {
+            opened_channel1 = *created_channel;
+        });
+
+        let message = ClientMessage::Register {
+            connection_type: ConnectionType::Tcp,
+            port: 24,
+            request: request_id,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+        } => {
+            opened_channel2 = *created_channel;
+        });
+
+        let (connection1, _) = handler.new_channel_tcp_connection(opened_channel1).unwrap();
+
+        let message = ClientMessage::TcpConnectionDisconnected {
+            channel: opened_channel2,
+            connection: connection1,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_eq!(response.len(), 0, "Unexpected number of operations returned");
+    }
+
+    #[test]
+    fn no_operation_returned_if_tcp_data_received_but_connection_disconnected_by_dsrp_client() {
+        let mut handler = ServerHandler::new();
+        let new_client = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+
+        let client_id = new_client.id;
+        let request_id = RequestId(25);
+        let mut opened_channel = ChannelId(u32::MAX);
+        let message = ClientMessage::Register {
+            connection_type: ConnectionType::Tcp,
+            port: 23,
+            request: request_id,
+        };
+
+        let response = handler.handle_client_message(client_id, message).unwrap();
+        assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+        } => {
+            opened_channel = *created_channel;
+        });
+
+        let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
+
+        let message = ClientMessage::TcpConnectionDisconnected {
+            channel: opened_channel,
+            connection: connection1,
+        };
+
+        let _ = handler.handle_client_message(client_id, message).unwrap(); // assumes success
+
+        match handler.tcp_data_received(connection1, &[1,2,3,4]) {
             None => (),
             Some(_) => panic!("Expected no operation returned but one came back"),
         }
