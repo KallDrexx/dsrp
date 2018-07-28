@@ -108,6 +108,7 @@ impl ServerHandler {
             ClientMessage::Register {request, connection_type, port} => {
                 if self.active_ports.contains_key(&port) {
                     vec![ServerOperation::SendMessageToDsrpClient {
+                        client: client_id,
                         message: ServerMessage::RegistrationFailed {
                             request,
                             cause: RegistrationFailureCause::PortAlreadyRegistered,
@@ -141,6 +142,7 @@ impl ServerHandler {
                     client.channels.insert(channel_id);
 
                     let message_to_client = ServerOperation::SendMessageToDsrpClient {
+                        client: client_id,
                         message: ServerMessage::RegistrationSuccessful {
                             request,
                             created_channel: channel_id,
@@ -239,13 +241,18 @@ impl ServerHandler {
                 continue;
             }
 
-            let connection = ActiveTcpConnection {owning_channel: channel_id};
+            let connection = ActiveTcpConnection {
+                owning_channel: channel_id,
+                owning_client: channel.owner,
+            };
+
             self.active_tcp_connections.insert(new_connection_id, connection);
             channel.tcp_connections.insert(new_connection_id);
             break;
         }
 
         let operation = ServerOperation::SendMessageToDsrpClient {
+            client: channel.owner,
             message: ServerMessage::NewIncomingTcpConnection {
                 new_connection: new_connection_id,
                 channel: channel_id
@@ -262,18 +269,19 @@ impl ServerHandler {
         };
 
         let channel = self.active_channels.get_mut(&connection.owning_channel);
+
         if let Some(x) = channel {
             x.tcp_connections.remove(&connection_id);
+            Some(ServerOperation::SendMessageToDsrpClient {
+                client: x.owner,
+                message: ServerMessage::TcpConnectionClosed {
+                    channel: connection.owning_channel,
+                    connection: connection_id,
+                }
+            })
+        } else {
+            None
         }
-
-        let operation = ServerOperation::SendMessageToDsrpClient {
-            message: ServerMessage::TcpConnectionClosed {
-                channel: connection.owning_channel,
-                connection: connection_id,
-            }
-        };
-
-        Some(operation)
     }
 
     pub fn tcp_data_received(&self, connection_id: ConnectionId, data: &[u8]) -> Option<ServerOperation> {
@@ -291,14 +299,18 @@ impl ServerHandler {
             data: data_copy,
         };
 
-        let operation = ServerOperation::SendMessageToDsrpClient {message};
+        let operation = ServerOperation::SendMessageToDsrpClient {
+            client: connection.owning_client,
+            message
+        };
         Some(operation)
     }
 
     pub fn udp_data_received(&self, channel_id: ChannelId, data: &[u8]) -> Option<ServerOperation> {
-        if !self.active_channels.contains_key(&channel_id) {
-            return None;
-        }
+        let channel = match self.active_channels.get(&channel_id) {
+            Some(x) => x,
+            None => return None,
+        };
 
         let mut data_copy = Vec::new();
         data_copy.extend_from_slice(data);
@@ -309,7 +321,11 @@ impl ServerHandler {
             data: data_copy,
         };
 
-        let operation = ServerOperation::SendMessageToDsrpClient {message};
+        let operation = ServerOperation::SendMessageToDsrpClient {
+            client: channel.owner,
+            message
+        };
+
         Some(operation)
     }
 

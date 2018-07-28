@@ -73,10 +73,12 @@ fn client_can_register_unused_tcp_port() {
     let response = handler.handle_client_message(client_id, message).unwrap();
 
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
-        } => {
-                    assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-        });
+            client: intended_client_id,
+            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
+    } => {
+            assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+            assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+    });
 }
 
 #[test]
@@ -95,10 +97,12 @@ fn client_cannot_register_single_port_twice_for_same_protocol()
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
-        } => {
-                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
+    } => {
+        assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+    });
 
     let request_id = RequestId(26);
     let message = ClientMessage::Register {
@@ -109,11 +113,13 @@ fn client_cannot_register_single_port_twice_for_same_protocol()
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-            message: ServerMessage::RegistrationFailed {request: response_request_id, cause}
-        } => {
-                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-                assert_eq!(*cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationFailed {request: response_request_id, cause}
+    } => {
+        assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        assert_eq!(*cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
+        assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+    });
 }
 
 #[test]
@@ -132,10 +138,12 @@ fn client_cannot_register_single_port_twice_for_different_protocols()
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
-        } => {
-                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
+    } => {
+        assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+    });
 
     let request_id = RequestId(26);
     let message = ClientMessage::Register {
@@ -146,11 +154,13 @@ fn client_cannot_register_single_port_twice_for_different_protocols()
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-            message: ServerMessage::RegistrationFailed {request: response_request_id, cause}
-        } => {
-                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-                assert_eq!(*cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationFailed {request: response_request_id, cause}
+    } => {
+        assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        assert_eq!(*cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
+        assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+    });
 }
 
 #[test]
@@ -169,10 +179,12 @@ fn different_clients_cannot_request_same_port() {
 
     let response = handler.handle_client_message(client_id1, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
-        } => {
-                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
+    } => {
+        assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        assert_eq!(*intended_client_id, client_id1, "Unexpected client id");
+    });
 
     let client_id2 = new_client2.id;
     let request_id = RequestId(26);
@@ -184,11 +196,13 @@ fn different_clients_cannot_request_same_port() {
 
     let response = handler.handle_client_message(client_id2, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-            message: ServerMessage::RegistrationFailed {request: response_request_id, cause}
-        } => {
-                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-                assert_eq!(*cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationFailed {request: response_request_id, cause}
+    } => {
+        assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        assert_eq!(*cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
+        assert_eq!(*intended_client_id, client_id2, "Unexpected client id");
+    });
 }
 
 #[test]
@@ -208,11 +222,13 @@ fn multiple_registrations_return_different_channel_ids()
     let mut channel1 = ChannelId(u32::MAX);
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel}
-        } => {
-                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-                channel1 = *created_channel;
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel}
+    } => {
+        assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+        channel1 = *created_channel;
+    });
 
     let request_id = RequestId(26);
     let message = ClientMessage::Register {
@@ -224,11 +240,13 @@ fn multiple_registrations_return_different_channel_ids()
     let mut channel2 = ChannelId(u32::MAX);
     let response2 = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response2, ServerOperation::SendMessageToDsrpClient {
-            message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel}
-        } => {
-                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-                channel2 = *created_channel;
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel}
+    } => {
+        assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+        channel2 = *created_channel;
+    });
 
     assert_ne!(channel1, channel2, "Both channels were not supposed to be the same ids");
 }
@@ -254,17 +272,19 @@ fn successful_tcp_registration_instructs_server_to_start_tcp_operations_with_sam
     let mut success_channel = ChannelId(u32::MAX);
 
     assert_vec_contains!(response, ServerOperation::StartTcpOperations {port, channel}
-            => {
-            assert_eq!(*port, requested_port, "Incorrect port in operation");
-            operation_channel = *channel
-        });
+    => {
+        assert_eq!(*port, requested_port, "Incorrect port in operation");
+        operation_channel = *channel
+    });
 
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel}
-        } => {
-                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-                success_channel = *created_channel;
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel}
+    } => {
+        assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+        success_channel = *created_channel;
+    });
 
     assert_eq!(operation_channel, success_channel, "Non-matching channel ids");
     assert_ne!(operation_channel, ChannelId(u32::MAX), "Incorrect defined channel");
@@ -291,17 +311,19 @@ fn successful_udp_registration_instructs_server_to_start_udp_operations_with_sam
     let mut success_channel = ChannelId(u32::MAX);
 
     assert_vec_contains!(response, ServerOperation::StartUdpOperations {port, channel}
-            => {
-            assert_eq!(*port, requested_port, "Incorrect port in operation");
-            operation_channel = *channel
-        });
+    => {
+        assert_eq!(*port, requested_port, "Incorrect port in operation");
+        operation_channel = *channel
+    });
 
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel}
-        } => {
-                assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
-                success_channel = *created_channel;
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel}
+    } => {
+        assert_eq!(*response_request_id, request_id, "Unexpected request id in response");
+        assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+        success_channel = *created_channel;
+    });
 
     assert_eq!(operation_channel, success_channel, "Non-matching channel ids");
     assert_ne!(operation_channel, ChannelId(u32::MAX), "Incorrect defined channel");
@@ -380,10 +402,12 @@ fn removing_client_reopens_port() {
     let response = handler.handle_client_message(client_id, message1).unwrap();
 
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
-        } => {
-                    assert_eq!(*response_request_id, request2, "Unexpected request id in response");
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
+    } => {
+        assert_eq!(*response_request_id, request2, "Unexpected request id in response");
+        assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+    });
 }
 
 #[test]
@@ -543,10 +567,12 @@ fn unregistering_allows_port_to_be_reused() {
 
     let register2_response = handler.handle_client_message(client_id, register_message).unwrap();
     assert_vec_contains!(register2_response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
-        } => {
-                    assert_eq!(*response_request_id, request2, "Unexpected request id in response");
-        });
+        client: intended_client_id,
+        message: ServerMessage::RegistrationSuccessful {request: response_request_id, created_channel: _}
+    } => {
+        assert_eq!(*response_request_id, request2, "Unexpected request id in response");
+        assert_eq!(*intended_client_id, client_id, "Unexpected client id");
+    });
 }
 
 #[test]
@@ -565,10 +591,11 @@ fn error_when_adding_new_tcp_connection_to_non_existent_channel() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let bad_channel = ChannelId(opened_channel.0 + 1);
     let error = handler.new_channel_tcp_connection(bad_channel).unwrap_err();
@@ -597,10 +624,11 @@ fn error_when_adding_connection_to_udp_channel() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let error = handler.new_channel_tcp_connection(opened_channel).unwrap_err();
     match error.kind {
@@ -628,18 +656,20 @@ fn can_add_tcp_connection_to_valid_channel() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection, operation) = handler.new_channel_tcp_connection(opened_channel).unwrap();
     match operation {
-        ServerOperation::SendMessageToDsrpClient {message} => {
+        ServerOperation::SendMessageToDsrpClient {client, message} => {
             match message {
                 ServerMessage::NewIncomingTcpConnection {channel, new_connection} => {
                     assert_eq!(channel, opened_channel, "Unexpected channel in server message");
                     assert_eq!(new_connection, connection, "Connection identifiers do not match");
+                    assert_eq!(client, client_id, "Unexpected client id")
                 },
 
                 x => panic!("Expected new incoming tcp connection message, instead got {:?}", x),
@@ -666,10 +696,11 @@ fn removing_client_returns_operations_to_disconnect_connections() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
     let (connection2, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
@@ -695,10 +726,11 @@ fn unregister_call_returns_server_operations_to_disconnect_connections() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
     let (connection2, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
@@ -726,20 +758,22 @@ fn server_side_tcp_disconnection_sends_dsrp_client_notification() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
     let result = handler.tcp_connection_disconnected(connection).unwrap();
 
     match result {
-        ServerOperation::SendMessageToDsrpClient {message} => {
+        ServerOperation::SendMessageToDsrpClient {client, message} => {
             match message {
                 ServerMessage::TcpConnectionClosed {channel, connection: closed_connection} => {
                     assert_eq!(channel, opened_channel, "Unexpected channel in message");
                     assert_eq!(closed_connection, connection, "Unexpected connection id in message");
+                    assert_eq!(client, client_id, "Unexpected client id")
                 },
 
                 x => panic!("Expected tcp connection closed message, instead got {:?}", x),
@@ -776,10 +810,11 @@ fn no_operation_returned_if_disconnected_connection_marked_again_as_disconnected
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
     let _ = handler.tcp_connection_disconnected(connection).unwrap();
@@ -807,16 +842,19 @@ fn data_relayed_to_client_when_tcp_data_is_received() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
 
     let received_data = [1, 2, 3, 4, 5, 6];
     match handler.tcp_data_received(connection1, &received_data).unwrap() {
-        ServerOperation::SendMessageToDsrpClient {message} => {
+        ServerOperation::SendMessageToDsrpClient {client, message} => {
+            assert_eq!(client, client_id, "Unexpected dsrp client for message");
+
             match message {
                 ServerMessage::DataReceived {channel, connection, data} => {
                     assert_eq!(channel, opened_channel, "Unexpected channel in message");
@@ -848,14 +886,17 @@ fn data_relayed_to_client_when_udp_data_is_received() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let received_data = [1, 2, 3, 4, 5, 6];
     match handler.udp_data_received(opened_channel, &received_data).unwrap() {
-        ServerOperation::SendMessageToDsrpClient {message} => {
+        ServerOperation::SendMessageToDsrpClient {client, message} => {
+            assert_eq!(client, client_id, "Unexpected dsrp client for message");
+
             match message {
                 ServerMessage::DataReceived {channel, connection, data} => {
                     assert_eq!(channel, opened_channel, "Unexpected channel in message");
@@ -887,10 +928,11 @@ fn no_operation_returned_if_udp_data_received_on_unknown_channel() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let bad_channel = ChannelId(opened_channel.0 + 1);
     let received_data = [1, 2, 3, 4, 5, 6];
@@ -916,10 +958,11 @@ fn no_operation_returned_if_tcp_data_received_on_unknown_connection() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
 
@@ -947,10 +990,11 @@ fn client_message_of_tcp_connection_closed_returns_disconnect_operation() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
 
@@ -983,10 +1027,11 @@ fn no_operation_when_client_reports_disconnection_of_unknown_connection_id() {
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
 
@@ -1016,10 +1061,11 @@ fn no_operation_when_client_reports_disconnection_of_connection_id_belonging_to_
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
 
@@ -1049,10 +1095,11 @@ fn no_operation_when_client_reports_disconnection_of_connection_id_belonging_to_
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel1 = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel1 = *created_channel;
+    });
 
     let message = ClientMessage::Register {
         connection_type: ConnectionType::Tcp,
@@ -1062,10 +1109,11 @@ fn no_operation_when_client_reports_disconnection_of_connection_id_belonging_to_
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel2 = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel2 = *created_channel;
+    });
 
     let (connection1, _) = handler.new_channel_tcp_connection(opened_channel1).unwrap();
 
@@ -1094,10 +1142,11 @@ fn no_operation_returned_if_tcp_data_received_but_connection_disconnected_by_dsr
 
     let response = handler.handle_client_message(client_id, message).unwrap();
     assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
-                message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
-        } => {
-            opened_channel = *created_channel;
-        });
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request: _, created_channel}
+    } => {
+        opened_channel = *created_channel;
+    });
 
     let (connection1, _) = handler.new_channel_tcp_connection(opened_channel).unwrap();
 

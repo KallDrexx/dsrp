@@ -25,6 +25,7 @@ pub struct ActiveChannel {
 
 pub struct ActiveTcpConnection {
     pub owning_channel: ChannelId,
+    pub owning_client: ClientId,
 }
 
 /// Represents the different type of operations that the server handler instructs the
@@ -62,7 +63,9 @@ pub enum ServerOperation {
         connection: ConnectionId,
     },
 
+    /// Instructs a server to send a DSRP server message to the specified client
     SendMessageToDsrpClient {
+        client: ClientId,
         message: ServerMessage,
     }
 }
