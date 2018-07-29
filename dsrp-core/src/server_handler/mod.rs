@@ -207,8 +207,8 @@ impl ServerHandler {
                 self.handle_dsrp_client_disconnection_notification(client_id, channel_id, connection_id)
             }
 
-            ClientMessage::DataBeingSent {channel: _, connection: _, data: _} => {
-                unimplemented!()
+            ClientMessage::DataBeingSent {channel: channel_id, connection: connection_id, data} => {
+                self.handle_dsrp_client_data_sent_message(client_id, channel_id, connection_id, data)
             },
         };
 
@@ -358,6 +358,42 @@ impl ServerHandler {
         channel.tcp_connections.remove(&connection_id);
 
         vec![ServerOperation::DisconnectConnection {connection: connection_id}]
+    }
+
+    fn handle_dsrp_client_data_sent_message(&self,
+                                            client_id: ClientId,
+                                            channel_id: ChannelId,
+                                            connection_id: Option<ConnectionId>,
+                                            data: Vec<u8>) -> Vec<ServerOperation> {
+        let channel = match self.active_channels.get(&channel_id) {
+            Some(x) => x,
+            None => return Vec::new(), // channel doesn't exist
+        };
+
+        if channel.owner != client_id {
+            return Vec::new(); // channel is not owned by this client
+        }
+
+        if channel.connection_type == ConnectionType::Tcp {
+            if let Some(id) = connection_id {
+                if !channel.tcp_connections.contains(&id) {
+                    return Vec::new(); // Not an active connection for this channel
+                }
+            } else {
+                return Vec::new(); // tcp channels must have a connection
+            }
+        } else {
+            if connection_id.is_some() {
+                return Vec::new(); // UDP channels do not use connections
+            }
+        }
+
+        // If we got here that means this is a valid request to relay
+        vec![ServerOperation::SendByteData {
+            channel: channel_id,
+            connection: connection_id,
+            data,
+        }]
     }
 }
 

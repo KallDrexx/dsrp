@@ -67,7 +67,15 @@ pub enum ServerOperation {
     SendMessageToDsrpClient {
         client: ClientId,
         message: ServerMessage,
-    }
+    },
+
+    /// Instructs the server to send a specific payload across a channel (and connection if
+    /// the channel is for a TCP channel).
+    SendByteData {
+        channel: ChannelId,
+        connection: Option<ConnectionId>,
+        data: Vec<u8>,
+    },
 }
 
 impl fmt::Display for ClientId {

@@ -1162,3 +1162,155 @@ fn no_operation_returned_if_tcp_data_received_but_connection_disconnected_by_dsr
         Some(_) => panic!("Expected no operation returned but one came back"),
     }
 }
+
+#[test]
+fn send_byte_data_operation_when_data_comes_in_from_dsrp_client_with_valid_tcp_channel_and_connection() {
+    let mut handler = ServerHandler::new();
+    let client1 = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+    let channel1 = open_channel(&mut handler, client1.id, ConnectionType::Tcp, 23);
+    let (connection1, _) = handler.new_channel_tcp_connection(channel1).unwrap();
+
+    let message = ClientMessage::DataBeingSent {
+        channel: channel1,
+        connection: Some(connection1),
+        data: vec![1,2,3,4,5],
+    };
+
+    let response = handler.handle_client_message(client1.id, message).unwrap();
+    assert_vec_contains!(response, ServerOperation::SendByteData {channel, connection, data} => {
+       assert_eq!(*channel, channel1, "Unexpected channel seen");
+       assert_eq!(*connection, Some(connection1), "Unexpected connection seen");
+       assert_eq!(data, &[1_u8,2,3,4,5], "Unexpected data seen");
+    });
+}
+
+#[test]
+fn send_byte_data_operation_when_data_comes_in_from_dsrp_client_with_valid_udp_channel() {
+    let mut handler = ServerHandler::new();
+    let client1 = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+    let channel1 = open_channel(&mut handler, client1.id, ConnectionType::Udp, 23);
+
+    let message = ClientMessage::DataBeingSent {
+        channel: channel1,
+        connection: None,
+        data: vec![1,2,3,4,5],
+    };
+
+    let response = handler.handle_client_message(client1.id, message).unwrap();
+    assert_vec_contains!(response, ServerOperation::SendByteData {channel, connection, data} => {
+       assert_eq!(*channel, channel1, "Unexpected channel seen");
+       assert_eq!(*connection, None, "Unexpected connection seen");
+       assert_eq!(data, &[1_u8,2,3,4,5], "Unexpected data seen");
+    });
+}
+
+#[test]
+fn no_operation_when_data_sent_over_unknown_connection() {
+    let mut handler = ServerHandler::new();
+    let client1 = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+    let channel1 = open_channel(&mut handler, client1.id, ConnectionType::Tcp, 23);
+    let (connection1, _) = handler.new_channel_tcp_connection(channel1).unwrap();
+
+    let message = ClientMessage::DataBeingSent {
+        channel: channel1,
+        connection: Some(ConnectionId(connection1.0 + 1)),
+        data: vec![1,2,3,4,5],
+    };
+
+    let response = handler.handle_client_message(client1.id, message).unwrap();
+    assert_eq!(response.len(), 0, "Unexpected number of operations returned");
+}
+
+#[test]
+fn no_operation_when_data_sent_over_unknown_channel() {
+    let mut handler = ServerHandler::new();
+    let client1 = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+    let channel1 = open_channel(&mut handler, client1.id, ConnectionType::Tcp, 23);
+    let (connection1, _) = handler.new_channel_tcp_connection(channel1).unwrap();
+
+    let message = ClientMessage::DataBeingSent {
+        channel: ChannelId(channel1.0  +1),
+        connection: Some(connection1),
+        data: vec![1,2,3,4,5],
+    };
+
+    let response = handler.handle_client_message(client1.id, message).unwrap();
+    assert_eq!(response.len(), 0, "Unexpected number of operations returned");
+}
+
+#[test]
+fn no_operation_when_data_sent_over_connection_not_owned_by_specified_channel() {
+    let mut handler = ServerHandler::new();
+    let client1 = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+    let channel1 = open_channel(&mut handler, client1.id, ConnectionType::Tcp, 23);
+    let channel2 = open_channel(&mut handler, client1.id, ConnectionType::Tcp, 24);
+    let (connection1, _) = handler.new_channel_tcp_connection(channel1).unwrap();
+
+    let message = ClientMessage::DataBeingSent {
+        channel: channel2,
+        connection: Some(connection1),
+        data: vec![1,2,3,4,5],
+    };
+
+    let response = handler.handle_client_message(client1.id, message).unwrap();
+    assert_eq!(response.len(), 0, "Unexpected number of operations returned");
+}
+
+#[test]
+fn no_operation_when_data_sent_over_channel_not_owned_by_client() {
+    let mut handler = ServerHandler::new();
+    let client1 = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+    let client2 = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+    let channel1 = open_channel(&mut handler, client1.id, ConnectionType::Tcp, 23);
+    let (connection1, _) = handler.new_channel_tcp_connection(channel1).unwrap();
+
+    let message = ClientMessage::DataBeingSent {
+        channel: channel1,
+        connection: Some(connection1),
+        data: vec![1,2,3,4,5],
+    };
+
+    let response = handler.handle_client_message(client2.id, message).unwrap();
+    assert_eq!(response.len(), 0, "Unexpected number of operations returned");
+}
+
+#[test]
+fn no_operation_when_data_sent_no_connection_specified_for_tcp_channel() {
+    let mut handler = ServerHandler::new();
+    let client1 = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+    let client2 = handler.add_dsrp_client(HandshakeRequest::new()).unwrap();
+    let channel1 = open_channel(&mut handler, client1.id, ConnectionType::Tcp, 23);
+
+    let message = ClientMessage::DataBeingSent {
+        channel: channel1,
+        connection: None,
+        data: vec![1,2,3,4,5],
+    };
+
+    let response = handler.handle_client_message(client2.id, message).unwrap();
+    assert_eq!(response.len(), 0, "Unexpected number of operations returned");
+}
+
+fn open_channel(handler: &mut ServerHandler,
+                client_id: ClientId,
+                connection_type: ConnectionType,
+                port: u16) -> ChannelId {
+    let request_id = RequestId(25);
+    let mut opened_channel = ChannelId(u32::MAX);
+    let message = ClientMessage::Register {
+        connection_type,
+        port,
+        request: request_id,
+    };
+
+    let response = handler.handle_client_message(client_id, message).unwrap();
+    assert_vec_contains!(response, ServerOperation::SendMessageToDsrpClient {
+        client: _,
+        message: ServerMessage::RegistrationSuccessful {request, created_channel}
+    } => {
+        assert_eq!(*request, request_id, "Unexpected request id from registration request");
+        opened_channel = *created_channel;
+    });
+
+    opened_channel
+}
