@@ -1,4 +1,4 @@
-use messages::{ClientMessage, ConnectionType, RequestId, ChannelId};
+use messages::{ClientMessage, ConnectionType, RequestId, ChannelId, ConnectionId};
 
 #[derive(Debug)]
 pub enum OutstandingRequest {
@@ -8,14 +8,29 @@ pub enum OutstandingRequest {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct ActiveChannel {
+    pub connection_type: ConnectionType,
+}
+
 #[derive(Debug)]
 pub enum ClientOperation {
+    /// Notifies the client that a port registration request was successful and a channel
+    /// was assigned for communication over it.
     NotifyChannelOpened {
         registered_by_request: RequestId,
         opened_channel: ChannelId,
     },
 
+    /// The specified message should be sent to the DSRP server the client is connected to
     SendMessageToServer {
         message: ClientMessage,
-    }
+    },
+
+    /// Notifies the client that the DSRP server is reporting a new remote inbound connection
+    /// has been accepted for the specified channel
+    NotifyNewRemoteTcpConnection {
+        channel: ChannelId,
+        new_connection: ConnectionId,
+    },
 }

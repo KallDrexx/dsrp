@@ -7,12 +7,13 @@ use std::collections::{HashMap};
 use std::num::Wrapping;
 use handshake::HandshakeRequest;
 use messages::{ClientMessage, ServerMessage, ConnectionType};
-use messages::{RequestId};
-use self::data_structures::{ClientOperation, OutstandingRequest};
+use messages::{RequestId, ChannelId};
+use self::data_structures::{ClientOperation, OutstandingRequest, ActiveChannel};
 
 pub struct ClientHandler {
     outstanding_requests: HashMap<RequestId, OutstandingRequest>,
     next_request_id: Wrapping<u32>,
+    active_channels: HashMap<ChannelId, ActiveChannel>,
 }
 
 impl ClientHandler {
@@ -22,6 +23,7 @@ impl ClientHandler {
         let client = ClientHandler {
             outstanding_requests: HashMap::new(),
             next_request_id: Wrapping(0),
+            active_channels: HashMap::new(),
         };
 
         (client, handshake)
@@ -53,21 +55,28 @@ impl ClientHandler {
 
     pub fn handle_server_message(&mut self, message: ServerMessage) -> Result<Vec<ClientOperation>, ServerMessageHandlingError> {
         let operations = match message {
-            ServerMessage::RegistrationSuccessful {request, created_channel} => {
-                match self.outstanding_requests.remove(&request) {
-                    Some(_) => (),
+            ServerMessage::RegistrationSuccessful {request: request_id, created_channel} => {
+                let request = match self.outstanding_requests.remove(&request_id) {
+                    Some(x) => x,
                     None => {
-                        let kind = ServerMessageHandlingErrorKind::UnknownRequest(request);
+                        let kind = ServerMessageHandlingErrorKind::UnknownRequest(request_id);
                         return Err(ServerMessageHandlingError {kind});
                     }
                 };
 
-                let notification = ClientOperation::NotifyChannelOpened {
-                    opened_channel: created_channel,
-                    registered_by_request: request,
-                };
+                match request {
+                    OutstandingRequest::Registration {connection_type, port: _} => {
+                        let active_channel = ActiveChannel {connection_type};
+                        self.active_channels.insert(created_channel, active_channel);
 
-                vec![notification]
+                        let notification = ClientOperation::NotifyChannelOpened {
+                            opened_channel: created_channel,
+                            registered_by_request: request_id,
+                        };
+
+                        vec![notification]
+                    }
+                }
             },
 
             ServerMessage::DataReceived {channel: _, connection: _, data: _} => {
@@ -78,8 +87,22 @@ impl ClientHandler {
                 unimplemented!()
             },
 
-            ServerMessage::NewIncomingTcpConnection {channel: _, new_connection: _} => {
-                unimplemented!()
+            ServerMessage::NewIncomingTcpConnection {channel: channel_id, new_connection} => {
+                let channel = match self.active_channels.get(&channel_id) {
+                    Some(x) => x,
+                    None => return Ok(Vec::new()),
+                };
+
+                if channel.connection_type != ConnectionType::Tcp {
+                    return Ok(Vec::new());
+                }
+
+                let notification = ClientOperation::NotifyNewRemoteTcpConnection {
+                    channel: channel_id,
+                    new_connection,
+                };
+
+                vec![notification]
             },
 
             ServerMessage::RegistrationFailed {request: _, cause: _} => {
