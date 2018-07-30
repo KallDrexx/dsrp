@@ -1,6 +1,6 @@
 use super::*;
 use handshake::CURRENT_PROTOCOL_VERSION;
-use messages::{ChannelId, ConnectionId};
+use messages::{ChannelId, ConnectionId, RegistrationFailureCause};
 
 #[test]
 fn new_handler_creates_handshake_request_with_current_protocol_version() {
@@ -90,6 +90,44 @@ fn error_if_response_does_not_match_outstanding_request_id() {
     let response = ServerMessage::RegistrationSuccessful {
         request: bad_request,
         created_channel: ChannelId(22),
+    };
+
+    let error = client.handle_server_message(response).unwrap_err();
+    match error.kind {
+        ServerMessageHandlingErrorKind::UnknownRequest(request) => {
+            assert_eq!(request, bad_request, "Unexpected request in error");
+        },
+    }
+}
+
+#[test]
+fn registration_failed_notification_raised_when_server_rejects_registration() {
+    let (mut client, _) = ClientHandler::new();
+    let (request_id, _) = client.request_registration(ConnectionType::Tcp, 23);
+
+    let response = ServerMessage::RegistrationFailed {
+        request: request_id,
+        cause: RegistrationFailureCause::PortAlreadyRegistered,
+    };
+
+    let results = client.handle_server_message(response).unwrap();
+
+    assert_vec_contains!(results, ClientOperation::NotifyRegistrationFailed {request, cause}
+    => {
+        assert_eq!(*request, request_id, "Unexpected request id returned");
+        assert_eq!(*cause, RegistrationFailureCause::PortAlreadyRegistered, "Unexpected cause");
+    });
+}
+
+#[test]
+fn error_returned_when_registration_failure_message_for_untracked_registration() {
+    let (mut client, _) = ClientHandler::new();
+    let (request_id, _) = client.request_registration(ConnectionType::Tcp, 23);
+
+    let bad_request = RequestId(request_id.0 + 1);
+    let response = ServerMessage::RegistrationFailed {
+        request: bad_request,
+        cause: RegistrationFailureCause::PortAlreadyRegistered,
     };
 
     let error = client.handle_server_message(response).unwrap_err();

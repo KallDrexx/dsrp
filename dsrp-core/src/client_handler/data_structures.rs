@@ -1,4 +1,5 @@
 use messages::{ClientMessage, ConnectionType, RequestId, ChannelId, ConnectionId};
+use messages::RegistrationFailureCause;
 
 #[derive(Debug)]
 pub enum OutstandingRequest {
@@ -33,4 +34,11 @@ pub enum ClientOperation {
         channel: ChannelId,
         new_connection: ConnectionId,
     },
+
+    /// Notifies the client that the DSRP server has rejected a registration request, usually
+    /// due to the port being requested still being in use.
+    NotifyRegistrationFailed {
+        request: RequestId,
+        cause: RegistrationFailureCause,
+    }
 }

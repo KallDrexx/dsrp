@@ -105,8 +105,19 @@ impl ClientHandler {
                 vec![notification]
             },
 
-            ServerMessage::RegistrationFailed {request: _, cause: _} => {
-                unimplemented!()
+            ServerMessage::RegistrationFailed {request: request_id, cause} => {
+                match self.outstanding_requests.remove(&request_id) {
+                    Some(_) => (),
+                    None => {
+                        let kind = ServerMessageHandlingErrorKind::UnknownRequest(request_id);
+                        return Err(ServerMessageHandlingError {kind});
+                    },
+                }
+
+                vec![ClientOperation::NotifyRegistrationFailed {
+                    request: request_id,
+                    cause,
+                }]
             }
         };
 
