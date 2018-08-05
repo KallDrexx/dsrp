@@ -1,12 +1,12 @@
 use super::*;
-use handshake::CURRENT_PROTOCOL_VERSION;
+use handshake::CURRENT_VERSION;
 use messages::{ChannelId, ConnectionId, RegistrationFailureCause};
 use rand;
 
 #[test]
 fn new_handler_creates_handshake_request_with_current_protocol_version() {
     let (_, request) = ClientHandler::new();
-    assert_eq!(request.client_protocol_version, CURRENT_PROTOCOL_VERSION, "Unexpected protocol version");
+    assert_eq!(request.client_protocol_version, CURRENT_VERSION, "Unexpected protocol version");
 }
 
 #[test]

@@ -3,7 +3,7 @@ mod data_structures;
 
 use std::collections::{HashSet, HashMap};
 use std::num::Wrapping;
-use ::handshake::{HandshakeRequest, HandshakeResponse, CURRENT_PROTOCOL_VERSION};
+use ::handshake::{HandshakeRequest, HandshakeResponse, CURRENT_VERSION};
 use ::messages::{ClientMessage, ServerMessage, ChannelId, RegistrationFailureCause};
 use ::messages::{ConnectionType, ConnectionId};
 use self::data_structures::{ActiveChannel, ActiveClient};
@@ -38,10 +38,10 @@ impl ServerHandler {
 
     pub fn add_dsrp_client(&mut self, request: HandshakeRequest) -> Result<NewClient, HandshakeResponse> {
         // For now only accept clients running the same version as the server
-        if request.client_protocol_version != CURRENT_PROTOCOL_VERSION {
+        if request.client_protocol_version != CURRENT_VERSION {
             let message = format!("Protocol version {} requested but only protocol version {} is supported",
                 request.client_protocol_version,
-                CURRENT_PROTOCOL_VERSION);
+                                  CURRENT_VERSION);
             return Err(HandshakeResponse::Failure {reason: message});
         }
 

@@ -13,7 +13,8 @@ fn can_create_client_with_current_handshake_protocol_version() {
 
 #[test]
 fn cannot_create_client_with_incorrect_handshake_protocol_version() {
-    let handshake = HandshakeRequest {client_protocol_version: CURRENT_PROTOCOL_VERSION + 1};
+    let test_version = CURRENT_VERSION.to_owned() + "a";
+    let handshake = HandshakeRequest {client_protocol_version: test_version};
     let mut handler = ServerHandler::new();
     let error = handler.add_dsrp_client(handshake).unwrap_err();
 

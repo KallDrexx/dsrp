@@ -1,6 +1,6 @@
 [package]
 name = "dsrp-core"
-version = "0.1.0"
+version = "0.1.0-dev"
 authors = ["KallDrexx <me@mshapiro.net>"]
 
 [dependencies]

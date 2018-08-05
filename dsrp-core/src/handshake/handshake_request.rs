@@ -1,11 +1,13 @@
 use std::io;
+use std::io::{Read};
 use std::fmt;
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use std::string::FromUtf8Error;
+use byteorder::{ WriteBytesExt};
 use failure::{Backtrace, Fail};
-use super::{CURRENT_PROTOCOL_VERSION, HANDSHAKE_REQUEST_PREFIX};
+use super::{CURRENT_VERSION, HANDSHAKE_REQUEST_PREFIX};
 
 pub struct HandshakeRequest {
-    pub client_protocol_version: u32,
+    pub client_protocol_version: String,
 }
 
 #[derive(Debug)]
@@ -23,12 +25,15 @@ pub enum HandshakeRequestParseErrorsKind {
 
     #[fail(display = "{}", _0)]
     Io(#[cause] io::Error),
+
+    #[fail(display = "{}", _0)]
+    FromUtf8Error(#[cause] FromUtf8Error),
 }
 
 impl HandshakeRequest {
     pub fn new() -> Self {
         HandshakeRequest {
-            client_protocol_version: CURRENT_PROTOCOL_VERSION,
+            client_protocol_version: CURRENT_VERSION.to_owned(),
         }
     }
 
@@ -38,27 +43,43 @@ impl HandshakeRequest {
             bytes.push(*byte);
         }
 
-        bytes.write_u32::<BigEndian>(self.client_protocol_version).unwrap();
+        if self.client_protocol_version.len() > 255 {
+            panic!("Handshake protocol version is {} characters, but it can't be more than 255", self.client_protocol_version.len());
+        }
+
+        bytes.write_u8(self.client_protocol_version.len() as u8).unwrap();
+        bytes.extend_from_slice(self.client_protocol_version.as_bytes());
         bytes
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, HandshakeRequestParseError> {
         let prefix_length = HANDSHAKE_REQUEST_PREFIX.len();
-        let expected_request_length = prefix_length + 4;
-        if bytes.len() != expected_request_length {
+        if bytes.len() < prefix_length + 1 {
             let kind = HandshakeRequestParseErrorsKind::InvalidNumberOfBytes;
             return Err(HandshakeRequestParseError {kind});
         }
 
-        if &bytes[..prefix_length] != HANDSHAKE_REQUEST_PREFIX {
+        let prefix = &bytes[..prefix_length];
+        let version_length = bytes[prefix_length];
+
+        if &prefix[..] != HANDSHAKE_REQUEST_PREFIX {
             let kind = HandshakeRequestParseErrorsKind::InvalidPrefix;
             return Err(HandshakeRequestParseError {kind});
         }
 
-        let version = (&bytes[prefix_length..]).read_u32::<BigEndian>()?;
-        return Ok(HandshakeRequest{
-            client_protocol_version: version,
-        })
+        let expected_length = prefix_length + 1 + (version_length as usize);
+        if bytes.len() != expected_length {
+            let kind = HandshakeRequestParseErrorsKind::InvalidNumberOfBytes;
+            return Err(HandshakeRequestParseError {kind});
+        }
+
+        let start_index = prefix_length + 1;
+        let mut buffer = Vec::with_capacity(version_length as usize);
+        buffer.resize(version_length as usize, 0);
+        (&bytes[start_index..]).read(&mut buffer)?;
+
+        let value = String::from_utf8(buffer)?;
+        Ok(HandshakeRequest{client_protocol_version: value})
     }
 }
 
@@ -90,38 +111,50 @@ impl From<io::Error> for HandshakeRequestParseError {
     }
 }
 
+impl From<FromUtf8Error> for HandshakeRequestParseError {
+    fn from(error: FromUtf8Error) -> Self {
+        HandshakeRequestParseError { kind: HandshakeRequestParseErrorsKind::FromUtf8Error(error) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    use std::io::{Cursor, Read};
+    use byteorder::{BigEndian, ReadBytesExt};
 
     #[test]
     fn can_convert_request_into_bytes() {
-        const VERSION: u32 = 322;
-        let request = HandshakeRequest { client_protocol_version: VERSION };
+        const VERSION: &str = "12345";
+        let request = HandshakeRequest { client_protocol_version: VERSION.to_owned() };
         let bytes = request.into_bytes();
 
         let prefix_length = HANDSHAKE_REQUEST_PREFIX.len();
 
-        assert_eq!(bytes.len(), prefix_length + 4, "Unexpected byte length");
+        assert_eq!(bytes.len(), prefix_length + 1 + VERSION.len(), "Unexpected byte length");
         assert_eq!(&bytes[..prefix_length], HANDSHAKE_REQUEST_PREFIX, "Unexpected handshake prefix");
 
         let mut cursor = Cursor::new(&bytes[prefix_length..]);
-        let actual_version = cursor.read_u32::<BigEndian>().unwrap();
-        assert_eq!(actual_version, VERSION, "Unexpected protocol version");
+        let version_length = cursor.read_u8().unwrap() as usize;
+        assert_eq!(version_length, VERSION.len(), "Unexpected version string length");
+
+        let mut buffer = Vec::new();
+        buffer.resize(version_length as usize, 0);
+        cursor.read_exact(&mut buffer[..]).unwrap();
+        assert_eq!(&buffer[..], VERSION.as_bytes(), "Unexpected protocol version");
     }
 
     #[test]
     fn new_request_has_current_handshake_version() {
         let request = HandshakeRequest::new();
 
-        assert_eq!(request.client_protocol_version, CURRENT_PROTOCOL_VERSION, "Unexpected protocol version");
+        assert_eq!(request.client_protocol_version, CURRENT_VERSION, "Unexpected protocol version");
     }
 
     #[test]
     fn can_read_deserialized_request() {
-        const VERSION: u32 = 322;
-        let request = HandshakeRequest { client_protocol_version: VERSION };
+        const VERSION: &'static str = "abcdefg";
+        let request = HandshakeRequest { client_protocol_version: VERSION.to_owned() };
         let bytes = request.into_bytes();
         let request = HandshakeRequest::from_bytes(&bytes).unwrap();
 
