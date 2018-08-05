@@ -1,5 +1,6 @@
 #[macro_use] extern crate failure;
 extern crate byteorder;
+extern crate rand;
 
 #[cfg(test)]
 #[macro_use]

@@ -3,17 +3,18 @@ mod errors;
 
 pub use self::errors::{ServerMessageHandlingError, ServerMessageHandlingErrorKind};
 
-use std::collections::{HashMap};
+use std::collections::{HashMap, HashSet};
 use std::num::Wrapping;
 use handshake::HandshakeRequest;
 use messages::{ClientMessage, ServerMessage, ConnectionType};
-use messages::{RequestId, ChannelId};
-use self::data_structures::{ClientOperation, OutstandingRequest, ActiveChannel};
+use messages::{RequestId, ChannelId, ConnectionId};
+use self::data_structures::{ClientOperation, OutstandingRequest, ActiveChannel, ActiveConnection};
 
 pub struct ClientHandler {
     outstanding_requests: HashMap<RequestId, OutstandingRequest>,
     next_request_id: Wrapping<u32>,
     active_channels: HashMap<ChannelId, ActiveChannel>,
+    active_connections: HashMap<ConnectionId, ActiveConnection>,
 }
 
 impl ClientHandler {
@@ -24,6 +25,7 @@ impl ClientHandler {
             outstanding_requests: HashMap::new(),
             next_request_id: Wrapping(0),
             active_channels: HashMap::new(),
+            active_connections: HashMap::new(),
         };
 
         (client, handshake)
@@ -66,7 +68,11 @@ impl ClientHandler {
 
                 match request {
                     OutstandingRequest::Registration {connection_type, port: _} => {
-                        let active_channel = ActiveChannel {connection_type};
+                        let active_channel = ActiveChannel {
+                            connection_type,
+                            connections: HashSet::new(),
+                        };
+
                         self.active_channels.insert(created_channel, active_channel);
 
                         let notification = ClientOperation::NotifyChannelOpened {
@@ -83,12 +89,39 @@ impl ClientHandler {
                 unimplemented!()
             },
 
-            ServerMessage::TcpConnectionClosed {channel: _, connection: _} => {
-                unimplemented!()
+            ServerMessage::TcpConnectionClosed {channel: channel_id, connection: connection_id} => {
+                {
+                    // Validations
+                    let connection = match self.active_connections.get(&connection_id) {
+                        Some(x) => x,
+                        None => return Ok(Vec::new()),
+                    };
+
+                    if connection.owner != channel_id {
+                        return Ok(Vec::new());
+                    }
+                }
+
+                // Validations passed
+                let channel = match self.active_channels.get_mut(&channel_id) {
+                    Some(x) => x,
+                    None => return Ok(Vec::new()),
+                };
+
+                self.active_connections.remove(&connection_id);
+                channel.connections.remove(&connection_id);
+
+                let operation = ClientOperation::CloseTcpConnection {
+                    channel: channel_id,
+                    connection: connection_id,
+                };
+
+                vec![operation]
+
             },
 
             ServerMessage::NewIncomingTcpConnection {channel: channel_id, new_connection} => {
-                let channel = match self.active_channels.get(&channel_id) {
+                let channel = match self.active_channels.get_mut(&channel_id) {
                     Some(x) => x,
                     None => return Ok(Vec::new()),
                 };
@@ -97,12 +130,16 @@ impl ClientHandler {
                     return Ok(Vec::new());
                 }
 
-                let notification = ClientOperation::NotifyNewRemoteTcpConnection {
+                let active_connection = ActiveConnection {owner: channel_id};
+                channel.connections.insert(new_connection);
+                self.active_connections.insert(new_connection, active_connection);
+
+                let operation = ClientOperation::CreateTcpConnectionForChannel {
                     channel: channel_id,
                     new_connection,
                 };
 
-                vec![notification]
+                vec![operation]
             },
 
             ServerMessage::RegistrationFailed {request: request_id, cause} => {
