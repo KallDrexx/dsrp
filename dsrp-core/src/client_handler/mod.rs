@@ -85,8 +85,31 @@ impl ClientHandler {
                 }
             },
 
-            ServerMessage::DataReceived {channel: _, connection: _, data: _} => {
-                unimplemented!()
+            ServerMessage::DataReceived {channel: channel_id, connection: connection_id, data} => {
+                let channel = match self.active_channels.get(&channel_id) {
+                    Some(x) => x,
+                    None => return Ok(Vec::new()),
+                };
+
+                match channel.connection_type {
+                    ConnectionType::Tcp => {
+                        if connection_id.is_none() || !channel.connections.contains(&connection_id.unwrap()) {
+                            return Ok(Vec::new()); // all tcp messages should be over a specific connection
+                        }
+                    },
+
+                    ConnectionType::Udp => {
+                        if connection_id.is_some() {
+                            return Ok(Vec::new()); // A specific connection is not valid for udp channels
+                        }
+                    },
+                }
+
+                vec![ClientOperation::RelayRemotePacket {
+                    channel: channel_id,
+                    connection: connection_id,
+                    data,
+                }]
             },
 
             ServerMessage::TcpConnectionClosed {channel: channel_id, connection: connection_id} => {

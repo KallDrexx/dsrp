@@ -253,6 +253,117 @@ fn no_operation_when_dsrp_server_reports_connection_closed_for_non_owning_channe
     assert_eq!(results.len(), 0, "Unexpected number of operations returned");
 }
 
+#[test]
+fn packet_relay_operation_returned_when_dsrp_reports_incoming_data_over_tcp_connection() {
+    let (mut client, _) = ClientHandler::new();
+    let channel1 = open_channel(&mut client, ConnectionType::Tcp, 23);
+    let connection1 = create_connection(&mut client, channel1);
+
+    let expected_data = vec![1,2,3,4];
+    let message = ServerMessage::DataReceived {
+        channel: channel1,
+        connection: Some(connection1),
+        data: expected_data.clone(),
+    };
+
+    let results = client.handle_server_message(message).unwrap();
+    assert_vec_contains!(results, ClientOperation::RelayRemotePacket {channel, connection, data}
+    => {
+        assert_eq!(*channel, channel1, "Unexpected channel identifier");
+        assert_eq!(*connection, Some(connection1), "Unexpected connection identifier");
+        assert_eq!(&data[..], &expected_data[..], "Unexpected data in packet");
+    });
+}
+
+#[test]
+fn packet_relay_operation_returned_when_dsrp_reports_incoming_data_over_udp_channel() {
+    let (mut client, _) = ClientHandler::new();
+    let channel1 = open_channel(&mut client, ConnectionType::Udp, 23);
+
+    let expected_data = vec![1,2,3,4];
+    let message = ServerMessage::DataReceived {
+        channel: channel1,
+        connection: None,
+        data: expected_data.clone(),
+    };
+
+    let results = client.handle_server_message(message).unwrap();
+    assert_vec_contains!(results, ClientOperation::RelayRemotePacket {channel, connection, data}
+    => {
+        assert_eq!(*channel, channel1, "Unexpected channel identifier");
+        assert_eq!(*connection, None, "Unexpected connection identifier");
+        assert_eq!(&data[..], &expected_data[..], "Unexpected data in packet");
+    });
+}
+
+#[test]
+fn no_operation_when_data_received_message_for_unknown_channel() {
+    let (mut client, _) = ClientHandler::new();
+    let channel1 = open_channel(&mut client, ConnectionType::Udp, 23);
+
+    let expected_data = vec![1,2,3,4];
+    let message = ServerMessage::DataReceived {
+        channel: ChannelId(channel1.0 + 1),
+        connection: None,
+        data: expected_data.clone(),
+    };
+
+    let results = client.handle_server_message(message).unwrap();
+    assert_eq!(results.len(), 0, "Unexpected number of operations returned");
+}
+
+#[test]
+fn no_operation_when_data_received_message_for_unknown_connection() {
+    let (mut client, _) = ClientHandler::new();
+    let channel1 = open_channel(&mut client, ConnectionType::Tcp, 23);
+    let connection1 = create_connection(&mut client, channel1);
+
+    let expected_data = vec![1,2,3,4];
+    let message = ServerMessage::DataReceived {
+        channel: channel1,
+        connection: Some(ConnectionId(connection1.0 + 1)),
+        data: expected_data.clone(),
+    };
+
+    let results = client.handle_server_message(message).unwrap();
+    assert_eq!(results.len(), 0, "Unexpected number of operations returned");
+}
+
+#[test]
+fn no_operation_when_data_received_message_for_connection_not_owned_by_channel() {
+    let (mut client, _) = ClientHandler::new();
+    let channel1 = open_channel(&mut client, ConnectionType::Tcp, 23);
+    let channel2 = open_channel(&mut client, ConnectionType::Tcp, 24);
+    let connection1 = create_connection(&mut client, channel1);
+
+    let expected_data = vec![1,2,3,4];
+    let message = ServerMessage::DataReceived {
+        channel: channel2,
+        connection: Some(connection1),
+        data: expected_data.clone(),
+    };
+
+    let results = client.handle_server_message(message).unwrap();
+    assert_eq!(results.len(), 0, "Unexpected number of operations returned");
+}
+
+#[test]
+fn no_operation_when_data_received_message_for_tcp_channel_without_connectionl() {
+    let (mut client, _) = ClientHandler::new();
+    let channel1 = open_channel(&mut client, ConnectionType::Tcp, 23);
+    let _ = create_connection(&mut client, channel1);
+
+    let expected_data = vec![1,2,3,4];
+    let message = ServerMessage::DataReceived {
+        channel: channel1,
+        connection: None,
+        data: expected_data.clone(),
+    };
+
+    let results = client.handle_server_message(message).unwrap();
+    assert_eq!(results.len(), 0, "Unexpected number of operations returned");
+}
+
 fn open_channel(client: &mut ClientHandler, connection_type: ConnectionType, port: u16) -> ChannelId {
     let (request_id, _) = client.request_registration(connection_type, port);
     let channel = ChannelId(rand::random());

@@ -57,4 +57,12 @@ pub enum ClientOperation {
         channel: ChannelId,
         connection: ConnectionId,
     },
+
+    /// A data packet should be sent to the application server over the specified channel (or
+    /// connection for a tcp channel).
+    RelayRemotePacket {
+        channel: ChannelId,
+        connection: Option<ConnectionId>,
+        data: Vec<u8>,
+    },
 }
