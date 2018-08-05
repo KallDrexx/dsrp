@@ -74,22 +74,9 @@ impl ServerHandler {
         };
 
         for channel in client.channels {
-            let active_channel = match self.active_channels.remove(&channel) {
-                Some(x) => x,
-                None => continue,
-            };
-
-            self.active_ports.remove(&active_channel.port);
-            let operation = match active_channel.connection_type {
-                ConnectionType::Tcp => ServerOperation::StopTcpOperations {port: active_channel.port},
-                ConnectionType::Udp => ServerOperation::StopUdpOperations {port: active_channel.port},
-            };
-
-            results.push(operation);
-
-            for connection in active_channel.tcp_connections {
-                self.active_tcp_connections.remove(&connection);
-                results.push(ServerOperation::DisconnectConnection {connection});
+            match self.remove_channel(channel) {
+                None => (),
+                Some((_, mut operations)) => results.append(&mut operations),
             }
         }
 
@@ -132,6 +119,8 @@ impl ServerHandler {
                         connection_type: connection_type.clone(),
                         owner: client_id,
                         tcp_connections: HashSet::new(),
+                        socket_has_been_bound: false,
+                        registration_request: request,
                     };
 
                     self.active_ports.insert(port, channel_id);
@@ -141,20 +130,19 @@ impl ServerHandler {
                     let client = self.active_clients.get_mut(&client_id).unwrap();
                     client.channels.insert(channel_id);
 
-                    let message_to_client = ServerOperation::SendMessageToDsrpClient {
-                        client: client_id,
-                        message: ServerMessage::RegistrationSuccessful {
-                            request,
-                            created_channel: channel_id,
-                        }
-                    };
-
                     let start_operation = match connection_type {
-                        ConnectionType::Tcp => ServerOperation::StartTcpOperations {port, channel: channel_id},
-                        ConnectionType::Udp => ServerOperation::StartUdpOperations {port, channel: channel_id},
+                        ConnectionType::Tcp => ServerOperation::StartTcpOperations {
+                            port,
+                            channel: channel_id,
+                        },
+
+                        ConnectionType::Udp => ServerOperation::StartUdpOperations {
+                            port,
+                            channel: channel_id,
+                        },
                     };
 
-                    vec![start_operation, message_to_client]
+                    vec![start_operation]
                 }
             },
 
@@ -224,6 +212,11 @@ impl ServerHandler {
                 return Err(NewConnectionError {kind});
             },
         };
+
+        if !channel.socket_has_been_bound {
+            let kind = NewConnectionErrorKind::ConnectionAddedToUnboundChannel(channel_id);
+            return Err(NewConnectionError {kind});
+        }
 
         match channel.connection_type {
             ConnectionType::Tcp => (),
@@ -312,6 +305,10 @@ impl ServerHandler {
             None => return None,
         };
 
+        if !channel.socket_has_been_bound {
+            return None;
+        }
+
         let mut data_copy = Vec::new();
         data_copy.extend_from_slice(data);
 
@@ -324,6 +321,61 @@ impl ServerHandler {
         let operation = ServerOperation::SendMessageToDsrpClient {
             client: channel.owner,
             message
+        };
+
+        Some(operation)
+    }
+
+    pub fn socket_binding_successful(&mut self, channel_id: ChannelId) -> Option<ServerOperation> {
+        let channel = match self.active_channels.get_mut(&channel_id) {
+            Some(x) => x,
+            None => return None,
+        };
+
+        if channel.socket_has_been_bound {
+            return None; // Since the socket has already been bound this call is meaningless
+        }
+
+        channel.socket_has_been_bound = true;
+
+        // Consider the registration as a success now
+        let message = ServerMessage::RegistrationSuccessful {
+            request: channel.registration_request,
+            created_channel: channel_id,
+        };
+
+        let operation = ServerOperation::SendMessageToDsrpClient {
+            client: channel.owner,
+            message,
+        };
+
+        Some(operation)
+    }
+
+    pub fn socket_binding_failed(&mut self, channel_id: ChannelId) -> Option<ServerOperation> {
+        {
+            // validations
+            let channel = match self.active_channels.get_mut(&channel_id) {
+                Some(x) => x,
+                None => return None,
+            };
+
+            if channel.socket_has_been_bound {
+                return None; // Since the socket has already been bound this call is meaningless
+            }
+        }
+
+        // If we got here validations succeeded
+        let (channel, _) = self.remove_channel(channel_id).unwrap();
+
+        let message = ServerMessage::RegistrationFailed {
+            request: channel.registration_request,
+            cause: RegistrationFailureCause::SocketBindingFailed,
+        };
+
+        let operation = ServerOperation::SendMessageToDsrpClient {
+            client: channel.owner,
+            message,
         };
 
         Some(operation)
@@ -394,6 +446,29 @@ impl ServerHandler {
             connection: connection_id,
             data,
         }]
+    }
+
+    fn remove_channel(&mut self, channel_id: ChannelId) -> Option<(ActiveChannel, Vec<ServerOperation>)> {
+        let mut operations = Vec::new();
+        let active_channel = match self.active_channels.remove(&channel_id) {
+            Some(x) => x,
+            None => return None,
+        };
+
+        self.active_ports.remove(&active_channel.port);
+        let operation = match active_channel.connection_type {
+            ConnectionType::Tcp => ServerOperation::StopTcpOperations {port: active_channel.port},
+            ConnectionType::Udp => ServerOperation::StopUdpOperations {port: active_channel.port},
+        };
+
+        operations.push(operation);
+
+        for connection in &active_channel.tcp_connections {
+            self.active_tcp_connections.remove(connection);
+            operations.push(ServerOperation::DisconnectConnection {connection: *connection});
+        }
+
+        Some((active_channel, operations))
     }
 }
 

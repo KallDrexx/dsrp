@@ -44,4 +44,5 @@ pub enum ServerMessage {
 #[derive(Debug, PartialEq)]
 pub enum RegistrationFailureCause {
     PortAlreadyRegistered,
+    SocketBindingFailed,
 }

@@ -36,6 +36,9 @@ pub enum NewConnectionErrorKind {
 
     #[fail(display = "Channel {:?} is not a TCP channel", _0)]
     ConnectionAddedToNonTcpChannel(ChannelId),
+
+    #[fail(display = "Connection created for channel {:?} that's marked as unbound", _0)]
+    ConnectionAddedToUnboundChannel(ChannelId),
 }
 
 impl fmt::Display for ClientMessageHandlingError {

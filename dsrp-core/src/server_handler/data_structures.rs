@@ -1,7 +1,7 @@
 use std::fmt;
 use std::collections::HashSet;
 use handshake::HandshakeResponse;
-use messages::{ChannelId, ConnectionId, ServerMessage, ConnectionType};
+use messages::{ChannelId, ConnectionId, ServerMessage, ConnectionType, RequestId};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub struct ClientId(pub(crate) u32);
@@ -21,6 +21,8 @@ pub struct ActiveChannel {
     pub connection_type: ConnectionType,
     pub owner: ClientId,
     pub tcp_connections: HashSet<ConnectionId>,
+    pub socket_has_been_bound: bool,
+    pub registration_request: RequestId,
 }
 
 pub struct ActiveTcpConnection {
