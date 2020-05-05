@@ -3,7 +3,7 @@ use std::io::{Read};
 use std::fmt;
 use std::string::FromUtf8Error;
 use byteorder::{ WriteBytesExt};
-use failure::{Backtrace, Fail};
+use failure::Fail;
 use super::{CURRENT_VERSION, HANDSHAKE_REQUEST_PREFIX};
 
 pub struct HandshakeRequest {
@@ -86,16 +86,6 @@ impl HandshakeRequest {
 impl fmt::Display for HandshakeRequestParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.kind, f)
-    }
-}
-
-impl Fail for HandshakeRequestParseError {
-    fn cause(&self) -> Option<&Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
     }
 }
 

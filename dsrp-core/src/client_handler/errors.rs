@@ -1,5 +1,5 @@
 use std::fmt;
-use failure::{Fail, Backtrace};
+use failure::Fail;
 use messages::RequestId;
 
 #[derive(Debug)]
@@ -16,15 +16,5 @@ pub enum ServerMessageHandlingErrorKind {
 impl fmt::Display for ServerMessageHandlingError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.kind, f)
-    }
-}
-
-impl Fail for ServerMessageHandlingError {
-    fn cause(&self) -> Option<&Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
     }
 }

@@ -1,7 +1,7 @@
 use std::io;
 use std::fmt;
 use std::string::FromUtf8Error;
-use failure::{Backtrace, Fail};
+use failure::Fail;
 use super::{HANDSHAKE_RESPONSE_PREFIX};
 
 #[derive(PartialEq, Debug)]
@@ -124,16 +124,6 @@ impl fmt::Display for HandshakeResponseParseError {
     }
 }
 
-impl Fail for HandshakeResponseParseError {
-    fn cause(&self) -> Option<&Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
-    }
-}
-
 impl From<HandshakeResponseParseErrorKind> for HandshakeResponseParseError {
     fn from(kind: HandshakeResponseParseErrorKind) -> Self {
         HandshakeResponseParseError { kind }
@@ -155,16 +145,6 @@ impl From<FromUtf8Error> for HandshakeResponseParseError {
 impl fmt::Display for HandshakeResponseGenerationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.kind, f)
-    }
-}
-
-impl Fail for HandshakeResponseGenerationError {
-    fn cause(&self) -> Option<&Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
     }
 }
 

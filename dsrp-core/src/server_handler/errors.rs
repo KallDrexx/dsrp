@@ -1,5 +1,5 @@
 use std::fmt;
-use failure::{Fail, Backtrace};
+use failure::Fail;
 use server_handler::ClientId;
 use messages::ChannelId;
 
@@ -47,28 +47,8 @@ impl fmt::Display for ClientMessageHandlingError {
     }
 }
 
-impl Fail for ClientMessageHandlingError {
-    fn cause(&self) -> Option<&Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
-    }
-}
-
 impl fmt::Display for NewConnectionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&self.kind, f)
-    }
-}
-
-impl Fail for NewConnectionError {
-    fn cause(&self) -> Option<&Fail> {
-        self.kind.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.kind.backtrace()
     }
 }
