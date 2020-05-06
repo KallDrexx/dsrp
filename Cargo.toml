@@ -2,4 +2,5 @@
 members = [
     "dsrp-core",
     "dsrp-server",
+    "dsrp-client",
 ]

@@ -20,6 +20,8 @@ fn main() -> io::Result<()> {
     // Start listening for incoming connections
     poll.registry().register(&mut server, SERVER, Interest::READABLE)?;
 
+    println!("Server started on port 9999");
+
     loop {
         poll.poll(&mut events, None)?;
 
@@ -73,7 +75,7 @@ fn main() -> io::Result<()> {
 }
 
 fn handle_client_event(registry: &Registry, connection: &mut TcpStream, event: &Event) -> io::Result<bool> {
-    const DATA: &[u8] = b"Hello world!\n";
+    const DATA: &[u8] = b"Hello client!\n";
 
     if event.is_writable() {
         match connection.write(DATA) {
