@@ -1,130 +1,65 @@
-use mio::net::{TcpListener, TcpStream};
-use mio::{Events, Interest, Poll, Token, Registry};
-use mio::event::Event;
-use std::collections::HashMap;
-use std::io::{self, Read, Write};
-use std::str::from_utf8;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::prelude::*;
+use tokio::io::{BufReader};
+use futures::StreamExt;
+use std::io;
+use futures::io::ErrorKind;
 
-const SERVER: Token = Token(0);
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    let addr = "127.0.0.1:6142";
+    let server = listen_for_dsrp_clients(addr);
 
-fn main() -> io::Result<()> {
-    let mut poll = Poll::new()?;
-    let mut events = Events::with_capacity(128);
-
-    let mut connections = HashMap::new();
-    let mut next_token_id = 1;
-
-    let addr = "127.0.0.1:9999".parse().unwrap();
-    let mut server = TcpListener::bind(addr)?;
-
-    // Start listening for incoming connections
-    poll.registry().register(&mut server, SERVER, Interest::READABLE)?;
-
-    println!("Server started on port 9999");
-
-    loop {
-        poll.poll(&mut events, None)?;
-
-        for event in events.iter() {
-            match event.token() {
-                SERVER => {
-                    // Event for the server, which means a connection is ready to be accepted
-                    let (mut connection, address) = match server.accept() {
-                        Ok((connection, address)) => (connection, address),
-                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                            // Wouldblock means no more connections are queued, so go back to polling
-                            break;
-                        },
-
-                        Err(e) => {
-                            return Err(e);
-                        }
-                    };
-
-                    println!("Accepted connection from: {}", address);
-
-                    let client_token = Token(next_token_id);
-                    next_token_id += 1;
-
-                    poll.registry()
-                        .register(
-                            &mut connection,
-                            client_token,
-                            Interest::READABLE.add(Interest::WRITABLE))?;
-
-                    connections.insert(client_token, connection);
-                }
-
-                token => {
-                    // Event for a specific client
-                    let client_finished = if let Some(connection) = connections.get_mut(&token) {
-                        // handle event
-                        handle_client_event(poll.registry(), connection, event)?
-                    } else {
-                        // Sometimes events fire without a valid client apparently, so ignore these
-                        false
-                    };
-
-                    if client_finished {
-                        connections.remove(&token);
-                    }
-                }
-            }
-        }
-    }
+    println!("DSRP server started running on {}", addr);
+    server.await
 }
 
-fn handle_client_event(registry: &Registry, connection: &mut TcpStream, event: &Event) -> io::Result<bool> {
-    const DATA: &[u8] = b"Hello client!\n";
-
-    if event.is_writable() {
-        match connection.write(DATA) {
-            Ok(x) if x < DATA.len() => return Err(io::ErrorKind::WriteZero.into()),
-            Ok(_) => {
-                // We wrote all the bytes, and we don't want to write them again, so poll for read only
-                registry.reregister(connection, event.token(), Interest::READABLE)?;
-            }
-
-            Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {}
-            Err(ref err) if err.kind() == io::ErrorKind::Interrupted => {
-                return handle_client_event(registry, connection, event);
-            }
-
+async fn listen_for_dsrp_clients(addr: &str) -> io::Result<()> {
+    let mut listener = TcpListener::bind(addr).await?;
+    let mut incoming = listener.incoming();
+    while let Some(socket_result) = incoming.next().await {
+        match socket_result {
             Err(err) => {
-                return Err(err)
+                println!("Accept error: {:?}", err);
+            }
+
+            Ok(socket) => {
+                println!("Accepted connection from {:?}", socket.peer_addr()?);
+                tokio::spawn(async move {
+                    if let Err(e) = handle_client(socket).await {
+                        println!("An error occurred handling client: {:?}", e);
+                    }
+                });
             }
         }
     }
 
-    if event.is_readable() {
-        let mut should_close_connection = false;
-        let mut received_data = Vec::with_capacity(4096);
-        loop {
-            let mut buf = [0; 256];
-            match connection.read(&mut buf) {
-                Ok(0) => {
-                    should_close_connection = true;
-                    break;
-                }
+    Ok(())
+}
 
-                Ok(n) => received_data.extend_from_slice(&buf[..n]),
-                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(ref err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                Err(err) => return Err(err),
+async fn handle_client(mut socket: TcpStream) -> io::Result<()> {
+    let (reader, mut writer) = socket.split();
+    let mut reader = BufReader::new(reader);
+
+    writer.write(b"Hello there!\n").await?;
+
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line).await {
+            Ok(0) => {
+                println!("Client disconnected!");
+                break;
             }
-        }
 
-        if let Ok(str_buf) = from_utf8(&received_data) {
-            println!("Received data: {}", str_buf);
-        } else {
-            println!("Received non-UTF-8 data: {:?}", &received_data);
-        }
-
-        if should_close_connection {
-            println!("Closing connection");
-            return Ok(true);
+            Ok(_) => {writer.write(line.as_bytes()).await?;},
+            Err(e) if e.kind() == ErrorKind::WouldBlock => (),
+            Err(e) if e.kind() == ErrorKind::Interrupted => (),
+            Err(e) => {
+                println!("Error: {:?}", e);
+                break;
+            },
         }
     }
 
-    Ok(false)
+    Ok(())
 }
